@@ -1,4 +1,4 @@
-import warnings
+import logging
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -16,6 +16,8 @@ from sklearn.metrics import pairwise_distances
 from sklearn.preprocessing import normalize
 from sklearn.utils.extmath import randomized_svd
 from tqdm.auto import tqdm
+
+logger = logging.getLogger(__name__)
 
 _PROMPT_TEMPLATES = {
     "remedy": jinja2.Template(
@@ -139,7 +141,6 @@ def build_cluster_layers(
     base_min_cluster_size=10,
     membership_strength_threshold=0.2,
     next_cluster_size_quantile=0.8,
-    verbose=False,
 ):
     vector_layers = []
     location_layers = []
@@ -209,10 +210,12 @@ def build_cluster_layers(
         min_cluster_size = int(
             np.quantile([len(x) for x in layer_pointsets], next_cluster_size_quantile)
         )
-        if verbose:
-            print(
-                f"cluster={len(layer_vectors)}, last_min_cluster_size={last_min_cluster_size}, min_cluster_size={min_cluster_size}"
-            )
+        logger.info(
+            "cluster=%s, last_min_cluster_size=%s, min_cluster_size=%s",
+            len(layer_vectors),
+            last_min_cluster_size,
+            min_cluster_size,
+        )
 
         new_tree = cluster_trees.condense_tree(uncondensed_tree, min_cluster_size)
         leaves = cluster_trees.extract_leaves(new_tree)
@@ -567,6 +570,7 @@ class Toponymy:
         document_type : str
         corpus_description :
         verbose :
+            Whether to set the log level to info and display progress bars.
         keyphrase_min_occurrences :
         keyphrase_ngram_range :
         n_sentence_examples_per_cluster :
@@ -599,13 +603,16 @@ class Toponymy:
                 )
             )
 
+        if verbose:
+            logger.setLevel(logging.INFO)
+        self.verbose = verbose
+
         self.documents = np.array(documents)
         self.document_map = np.array(document_map)
         self.representation_techniques = representation_techniques
         self.document_type = document_type
         self.corpus_description = corpus_description
         self.llm = llm
-        self.verbose = verbose
         self.keyphrase_min_occurrences = keyphrase_min_occurrences
         self.keyphrase_ngram_range = keyphrase_ngram_range
         self.n_sentence_examples_per_cluster = n_sentence_examples_per_cluster
@@ -618,8 +625,7 @@ class Toponymy:
         Constructs a layered hierarchical clustering well suited for layered topic modeling.
         TODO: Add a check to ensure that there were any cluster generated at the specified base_min_cluster_size.
         """
-        if self.verbose:
-            print("Constructing cluster layers")
+        logger.info("Constructing cluster layers")
         self.base_min_cluster_size_ = base_min_cluster_size
         self.min_clusters_ = min_clusters
 
@@ -629,7 +635,6 @@ class Toponymy:
                 self.document_map,
                 base_min_cluster_size=base_min_cluster_size,
                 min_clusters=min_clusters,
-                verbose=self.verbose,
             )
         )
 
@@ -657,9 +662,10 @@ class Toponymy:
         Fits a set of topical documents to describe a cluster.
         If the cluster_layers_ have not yet been generated or is None it will generate them as necessary.
         """
-        # Call it yourself or get the default parameter choice.
-        # Maybe throw a warning.
         if getattr(self, "cluster_layers_", None) is None:
+            logger.warn(
+                "cluster_layers_ not set, calling fit_clusters with default parameters."
+            )
             self.fit_clusters()
 
         topical_sentences_per_cluster = [
@@ -690,10 +696,10 @@ class Toponymy:
         Fits a set of distincts documents to describe a cluster.
         If the cluster_layers_ have not yet been generated or is None it will generate them as necessary.
         """
-        # Call it yourself or get the default parameter choice.
-        # Maybe throw a warning.
-
         if getattr(self, "cluster_layers_", None) is None:
+            logger.warn(
+                "cluster_layers_ not set, calling fit_clusters with default parameters."
+            )
             self.fit_clusters()
 
         distinctive_sentences_per_cluster = [
@@ -789,12 +795,12 @@ class Toponymy:
         If the cluster_layers_ have not yet been generated or is None it will generate them as necessary.
         """
         # TODO: count_vectorizer: CountVectorizer might be passed in at some point but for now is hard coded.
-        # Call it yourself or get the default parameter choice.
-        # Maybe throw a warning.
 
         if getattr(self, "cluster_layers_", None) is None:
+            logger.warn(
+                "cluster_layers_ not set, calling fit_clusters with default parameters."
+            )
             self.fit_clusters()
-        # Check if embedding_model is set and has an encode function
 
         cv = sklearn.feature_extraction.text.CountVectorizer(
             lowercase=True,
@@ -814,10 +820,10 @@ class Toponymy:
         inverse_vocab = {i: w for i, w in enumerate(acceptable_vocab)}
         vocab = acceptable_vocab
 
-        if self.verbose:
-            print(
-                f"Created a potential keyphrase vocabulary of {len(vocab)} potential keyphrases"
-            )
+        logger.info(
+            "Created a potential keyphrase vocabulary of %s potential keyphrases",
+            len(vocab),
+        )
 
         vocab_vectors = dict(
             zip(
@@ -851,8 +857,7 @@ class Toponymy:
 
         if getattr(self, "cluster_layers_", None) is None:
             self.fit_clusters()
-        if self.verbose:
-            print("Sampling documents per cluster")
+        logger.info("Sampling documents per cluster")
         self.representation_ = dict()
         for rep in self.representation_techniques:
             if rep == "topical":
@@ -868,7 +873,7 @@ class Toponymy:
                     n_keyphrases_per_cluster=self.n_keyphrases_per_cluster
                 )
             else:
-                warnings.warn(f"{rep} is not a supported representation")
+                logger.warn("'%s' is not a supported representation", rep)
         return None
 
     def build_base_prompt(
@@ -930,10 +935,11 @@ class Toponymy:
         max_docs_per_cluster = min(
             max_docs_per_cluster, self.n_sentence_examples_per_cluster
         )
-        if self.verbose:
-            print(
-                f"Generating base layer topic names with at most {max_docs_per_cluster} {self.document_type} per cluster."
-            )
+        logger.info(
+            "Generating base layer topic names with at most %s %s per cluster.",
+            max_docs_per_cluster,
+            self.document_type,
+        )
         if getattr(self, "representation_", None) is None:
             self.fit_representation()
         layer_size = len(self.cluster_layers_.location_layers[layer_id])
@@ -990,10 +996,10 @@ class Toponymy:
             metric="precomputed",
             linkage="complete",
         )
-        print("Distance threshold", distance_threshold)
+        logger.info("Distance threshold: %s", distance_threshold)
         cls.fit(base_layer_topic_distances)
         cluster_sizes = np.bincount(cls.labels_)
-        print("Cluster sizes", cluster_sizes)
+        logger.info("Cluster sizes: ", cluster_sizes)
         clusters_for_renaming = np.where(cluster_sizes >= 2)[0]
         for c in tqdm(
             clusters_for_renaming,
@@ -1337,8 +1343,7 @@ class Toponymy:
 
         if getattr(self, "subtopic_layers_", None) is None:
             self.fit_subtopic_layers(self.max_subtopics_per_cluster)
-        if self.verbose:
-            print("Fitting intermediate layers")
+        logger.info("Fitting intermediate layers")
         self.topic_prompt_layers_ = [self.base_layer_prompts_]
         self.topic_name_layers_ = [self.base_layer_topics_]
 
@@ -1376,8 +1381,7 @@ class Toponymy:
         """
         if getattr(self, "topic_name_layers_", None) is None:
             self.fit_layers()
-        if self.verbose:
-            print("Cleaning up topic names\n")
+        logger.info("Cleaning up topic names\n")
         self.layer_clusters = [
             np.full(self.document_map.shape[0], "Unlabelled", dtype=object)
             for i in range(len(self.topic_name_layers_))
@@ -1429,8 +1433,10 @@ class Toponymy:
                     original_topic_names.append(unique_name)
                     n_attempts += 1
 
-                if n_attempts > 0 and self.verbose:
-                    print(f"{name} --> {unique_name} after {n_attempts} attempts")
+                if n_attempts > 0:
+                    logger.info(
+                        "%s --> %s after %s attempts", name, unique_name, n_attempts
+                    )
                 if unique_name not in unique_names:
                     unique_names[unique_name] = (n, i)
 

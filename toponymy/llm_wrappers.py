@@ -1,8 +1,10 @@
+import logging
 import string
-from warnings import warn
 
 import tokenizers
 import transformers
+
+logger = logging.getLogger(__name__)
 
 try:
 
@@ -13,8 +15,6 @@ try:
         def __init__(self, model_path, **kwargs):
             self.model_path = model_path
             for arg, val in kwargs.items():
-                if arg == "n_ctx":
-                    continue
                 setattr(self, arg, val)
             self.llm = llama_cpp.Llama(model_path=model_path, **kwargs)
 
@@ -84,11 +84,20 @@ try:
                     message=prompt,
                     model=self.model,
                     temperature=temperature,
-                    response_format={ "type": "json_object" },
+                    response_format={"type": "json_object"},
                 ).text
                 topic_name_info = json.loads(topic_name_info_raw)
                 topic_name = topic_name_info["topic_name"]
             except:
+                logger.warn(
+                    (
+                        "Failed to generate topic name with Cohere."
+                        "\nException:\n%s\nPrompt:\n%s\nResponse:\n%s"
+                    ),
+                    e,
+                    prompt,
+                    topic_name_info_text,
+                )
                 topic_name = ""
             return topic_name
 
@@ -102,7 +111,15 @@ try:
                 topic_name_info_text = topic_name_info_raw.text
                 topic_name_info = json.loads(topic_name_info_text)
             except Exception as e:
-                warn(f"Failed to generate topic cluster names with Cohere: {e}")
+                logger.warn(
+                    (
+                        "Failed to generate topic cluster names with Cohere."
+                        "\nException:\n%s\nPrompt:\n%s\nResponse:\n%s"
+                    ),
+                    e,
+                    prompt,
+                    topic_name_info_text,
+                )
                 return old_names
 
             result = []
@@ -111,10 +128,12 @@ try:
                     if old_name.lower() == list(name_mapping.keys())[0].lower():
                         result.append(list(name_mapping.values())[0])
                     else:
-                        warn(
-                            f"Old name {old_name} does not match the new name {list(name_mapping.keys())[0]}"
+                        logger.warn(
+                            "Old name '%s' does not match the new name '%s'",
+                            old_name,
+                            list(name_mapping.keys())[0],
                         )
-                        # use old_name?
+                        # Use old_name?
                         result.append(list(name_mapping.values())[0])
                 except:
                     result.append(old_name)
@@ -232,10 +251,9 @@ try:
 
     class OpenAIWrapper:
 
-        def __init__(self, API_KEY, model="gpt-4o-mini", verbose=False):
+        def __init__(self, API_KEY, model="gpt-4o-mini"):
             self.llm = openai.OpenAI(api_key=API_KEY)
             self.model = model
-            self.verbose = verbose
 
         def generate_topic_name(self, prompt, temperature=0.5):
             try:
@@ -250,11 +268,18 @@ try:
 
                 topic_name_info = json.loads(topic_name_info_text)
                 topic_name = topic_name_info["topic_name"]
-                if self.verbose:
-                    print(topic_name_info)
+                logger.info(topic_name_info)
             except Exception as e:
                 topic_name = ""
-                warn(f"{e}\n{prompt}\n{topic_name_info_text}")
+                logger.warn(
+                    (
+                        "Failed to generate topic name with OpenAI."
+                        "\nException:\n%s\nPrompt:\n%s\nResponse:\n%s"
+                    ),
+                    e,
+                    prompt,
+                    topic_name_info_text,
+                )
             return topic_name
 
         def generate_topic_cluster_names(self, prompt, old_names, temperature=0.5):
