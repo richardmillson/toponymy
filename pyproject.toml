@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "toponymy"
+version = "0.1.0"
+authors = [{name = "John Healy", email = "jchealy@gmail.com"}]
+maintainers = [{name = "John Healy", email = "jchealy@gmail.com"}]
+description = "A library for using large language models to name topics"
+readme = "README.rst"
+keywords = ["topic modeling", "representation", "cluster", "clustering", "large language models", "LLM", "topic naming"]
+license = {text = "MIT License"}
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Development Status :: 4 - Beta",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.21",
+    "pandas>=1.0",
+    "numba>=0.56",
+    "datasets",
+    "scikit-learn",
+    "vectorizers",
+    "scipy",
+    "fast_hdbscan",
+    "sentence_transformers",
+    "dataclasses",
+    "tqdm",
+]
+optional-dependencies.dev = [
+    "black",
+    "isort",
+    "pylint",
+    "pytest",
+    "anthropic",
+    "cohere",
+    "llama-cpp-python",
+    "openai",
+]
+
+
+[project.urls]
+Homepage = "https://github.com/TutteInstitute/toponymy"
+
+[tool.setuptools]
+zip-safe = false
+packages = ["toponymy"]
+# extras_require = {
+# 'gpu':  ['CMAKE_ARGS="-DLLAMA_CUDA=on" pip install llama-cpp-python'],
+# 'cpu': ['CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS" llama-cpp-python']
+# }
+license-files = ["LICENSE"]
+include-package-data = false
