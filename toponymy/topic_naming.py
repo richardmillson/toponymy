@@ -17,6 +17,8 @@ from sklearn.preprocessing import normalize
 from sklearn.utils.extmath import randomized_svd
 from tqdm.auto import tqdm
 
+from toponymy.llm_wrappers import BaseLlmWrapper
+
 logger = logging.getLogger(__name__)
 
 _PROMPT_TEMPLATES = {
@@ -533,7 +535,7 @@ class Toponymy:
         documents: Iterable,
         document_vectors: np.ndarray[float],
         document_map: np.ndarray[float],
-        llm,
+        llm: BaseLlmWrapper,
         embedding_model,
         cluster_layers: ClusterLayers = None,
         representation_techniques: list[str] = ["topical", "contrastive"],
@@ -559,8 +561,8 @@ class Toponymy:
             A numpy array of shape number_of_objects by 2 (or 3).  These are two dimensional vectors often corresponding
             to a 2 dimensional umap of the document_vectors.
         llm :
-            A wrapper from toponymy.llm_wrappers around the LLM that will be used
-            to generate topic names.
+            A wrapper around the LLM that will be used to generate topic names
+            that implements BaseLlmWrapper.
         embedding_model :
             The embedding model that the document_vectors was constructed with. Has an encode method.
         cluster_layers: ClusterLayers (optional, default None):
@@ -603,6 +605,15 @@ class Toponymy:
                 )
             )
 
+        if not isinstance(llm, BaseLlmWrapper):
+            raise ValueError(
+                (
+                    f"llm type {type(llm)} doesn't subclass BaseLlmWrapper;"
+                    "use an LLM wrapper from toponymy.llm_wrappers."
+                )
+            )
+        self.llm = llm
+
         if verbose:
             logger.setLevel(logging.INFO)
         self.verbose = verbose
@@ -612,7 +623,6 @@ class Toponymy:
         self.representation_techniques = representation_techniques
         self.document_type = document_type
         self.corpus_description = corpus_description
-        self.llm = llm
         self.keyphrase_min_occurrences = keyphrase_min_occurrences
         self.keyphrase_ngram_range = keyphrase_ngram_range
         self.n_sentence_examples_per_cluster = n_sentence_examples_per_cluster
@@ -881,7 +891,7 @@ class Toponymy:
         cluster_id,
         layer_id=0,
         max_docs_per_cluster=100,
-        llm_instruction="The short distinguising topic name is:",
+        llm_instruction="The short distinguishing topic name is:",
     ):
         """
         Take a cluster_id and layer_id and extracts the relevant information from the representation_ and cluster_layers_ properties to
@@ -953,7 +963,7 @@ class Toponymy:
                 cluster_id,
                 layer_id,
                 max_docs_per_cluster,
-                llm_instruction=self.llm.llm_instruction(kind="base_layer"),
+                llm_instruction=self.llm.llm_instruction_base_layer,
             )
             prompts.append(prompt)
         self.base_layer_prompts_ = prompts
@@ -1159,7 +1169,7 @@ class Toponymy:
         max_docs_per_cluster=12,
         max_adjacent_clusters=3,
         max_adjacent_docs=2,
-        llm_instruction="The short distinguising topic name is:",
+        llm_instruction="The short distinguishing topic name is:",
     ):
         if getattr(self, "subtopic_layers_", None) is None:
             self.fit_subtopic_layers(self.max_subtopics_per_cluster)
@@ -1352,7 +1362,7 @@ class Toponymy:
             topic_naming_prompts = self._create_prompt_from_subtopics(
                 subtopics_layer,
                 layer_id,
-                llm_instruction=self.llm.llm_instruction(kind="intermediate_layer"),
+                llm_instruction=self.llm.llm_instruction_intermediate_layer,
             )
             self.topic_prompt_layers_.append(topic_naming_prompts)
             topic_names = self._get_topic_name(topic_naming_prompts, layer_id)

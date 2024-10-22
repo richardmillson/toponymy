@@ -1,22 +1,62 @@
+import json
 import logging
 import string
+from abc import ABC, abstractmethod
+from pathlib import Path
 
 import tokenizers
 import transformers
 
 logger = logging.getLogger(__name__)
 
+
+class BaseLlmWrapper(ABC):
+    """Wraps an LLM to provide a consistent interface."""
+
+    @abstractmethod
+    def generate_topic_name(self, prompt: str, temperature: float) -> str:
+        """Generates a topic name from a prompt."""
+        pass
+
+    @abstractmethod
+    def generate_topic_cluster_names(
+        self, prompt: str, old_names: list[str], temperature: float
+    ) -> list[str]:
+        """Generates new topic names for multiple topic names that were similar."""
+        pass
+
+    @property
+    @abstractmethod
+    def llm_instruction_base_layer() -> str:
+        """The instruction for generating topic names for the base layer."""
+        pass
+
+    @property
+    @abstractmethod
+    def llm_instruction_intermediate_layer() -> str:
+        """The instruction for generating topic names for intermediate layers."""
+        pass
+
+    @property
+    @abstractmethod
+    def llm_instruction_remedy() -> str:
+        """The instruction for improving a topic name that had issues."""
+        pass
+
+
 try:
 
     import llama_cpp
 
-    class LlamaCppWrapper:
+    class LlamaCppWrapper(BaseLlmWrapper):
 
         def __init__(self, model_path, **kwargs):
+            if not Path(model_path).exists():
+                raise ValueError(f"Model path '{model_path}' doesn't exist.")
             self.model_path = model_path
+            self.llm = llama_cpp.Llama(model_path=model_path, **kwargs)
             for arg, val in kwargs.items():
                 setattr(self, arg, val)
-            self.llm = llama_cpp.Llama(model_path=model_path, **kwargs)
 
         def generate_topic_name(self, prompt, temperature=0.8):
             topic_name = self.llm(prompt, temperature=temperature)["choices"][0]["text"]
@@ -44,28 +84,26 @@ try:
             except:
                 return old_names
 
-        def llm_instruction(self, kind="base_layer"):
-            if kind == "base_layer":
-                return "\nThe short distinguising topic name is:\n"
-            elif kind == "intermediate_layer":
-                return "\nThe short topic name that encompasses the sub-topics is:\n"
-            elif kind == "remedy":
-                return "\nA better and more specific name that still captures the topic of these article titles is:\n"
-            else:
-                raise ValueError(
-                    f"Invalid llm_imnstruction kind; should be one of 'base_layer', 'intermediate_layer', or 'remedy' not '{kind}'"
-                )
+        @property
+        def llm_instruction_base_layer(self):
+            return "\nThe short distinguising topic name is:\n"
+
+        @property
+        def llm_instruction_intermediate_layer(self):
+            return "\nThe short topic name that encompasses the sub-topics is:\n"
+
+        @property
+        def llm_instruction_remedy(self):
+            return "\nA better and more specific name that still captures the topic of these article titles is:\n"
 
 except ImportError:
     pass
 
 try:
 
-    import json
-
     import cohere
 
-    class CohereWrapper:
+    class CohereWrapper(BaseLlmWrapper):
 
         def __init__(self, API_KEY, model="command-r-08-2024", local_tokenizer=None):
             self.llm = cohere.Client(api_key=API_KEY)
@@ -140,40 +178,38 @@ try:
 
             return result
 
-        def llm_instruction(self, kind="base_layer"):
-            if kind == "base_layer":
-                return """
+        @property
+        def llm_instruction_base_layer(self):
+            return """
 You are to give a brief (five to ten word) name describing this group.
 The topic name should be as specific as you can reasonably make it, while still describing the all example texts.
 The response should be in JSON formatted as {"topic_name":<NAME>, "topic_specificity":<SCORE>} where SCORE is a value in the range 0 to 1.
-                """
-            elif kind == "intermediate_layer":
-                return """
+"""
+
+        @property
+        def llm_instruction_intermediate_layer(self):
+            return """
 You are to give a brief (three to five word) name describing this group of papers.
 The topic should be the most specific topic that encompasses the breadth of sub-topics, with a focus on the major sub-topics.
 The response should be in JSON formatted as {"topic_name":<NAME>, "topic_specificity":<SCORE>} where SCORE is a value in the range 0 to 1.
-                """
-            elif kind == "remedy":
-                return """
+"""
+
+        @property
+        def llm_instruction_remedy(self):
+            return """
 You are to give a brief (three to ten word) name describing this group of papers that better captures the specific details of this group.
 The topic should be the most specific topic that encompasses the full breadth of sub-topics.
 The response should be in JSON formatted as {"topic_name":<NAME>, "less_specific_topic_name":<NAME>, "topic_specificity":<SCORE>} where SCORE is a value in the range 0 to 1.
 """
-            else:
-                raise ValueError(
-                    f"Invalid llm_imnstruction kind; should be one of 'base_layer', 'intermediate_layer', or 'remedy' not '{kind}'"
-                )
 
-except:
+except ImportError:
     pass
 
 try:
 
-    import json
-
     import anthropic
 
-    class AnthropicWrapper:
+    class AnthropicWrapper(BaseLlmWrapper):
 
         def __init__(
             self, API_KEY, model="claude-3-haiku-20240307", local_tokenizer=None
@@ -217,39 +253,38 @@ try:
             except:
                 return old_names
 
-        def llm_instruction(self, kind="base_layer"):
-            if kind == "base_layer":
-                return """
+        @property
+        def llm_instruction_base_layer(self):
+            return """
 You are to give a brief (five to ten word) name describing this group.
 The topic name should be as specific as you can reasonably make it, while still describing the all example texts.
 The response should be only JSON with no preamble formatted as {"topic_name":<NAME>, "topic_specificity":<SCORE>} where SCORE is a value in the range 0 to 1.
-                """
-            elif kind == "intermediate_layer":
-                return """
+"""
+
+        @property
+        def llm_instruction_intermediate_layer(self):
+            return """
 You are to give a brief (three to five word) name describing this group of papers.
 The topic should be the most specific topic that encompasses the breadth of sub-topics, with a focus on the major sub-topics.
 The response should be only JSON with no preamble formatted as {"topic_name":<NAME>, "topic_specificity":<SCORE>} where SCORE is a value in the range 0 to 1.
-                """
-            elif kind == "remedy":
-                return """
+"""
+
+        @property
+        def llm_instruction_remedy(self):
+            return """
 You are to give a brief (five to ten word) name describing this group of papers that better captures the specific details of this group.
 The topic should be the most specific topic that encompasses the full breadth of sub-topics.
 The response should be only JSON with no preamble formatted as {"topic_name":<NAME>, "less_specific_topic_name":<NAME>, "topic_specificity":<SCORE>} where SCORE is a value in the range 0 to 1.
 """
-            else:
-                raise ValueError(
-                    f"Invalid llm_imnstruction kind; should be one of 'base_layer', 'intermediate_layer', or 'remedy' not '{kind}'"
-                )
 
-except:
+except ImportError:
     pass
 
 try:
-    import json
 
     import openai
 
-    class OpenAIWrapper:
+    class OpenAIWrapper(BaseLlmWrapper):
 
         def __init__(self, API_KEY, model="gpt-4o-mini"):
             self.llm = openai.OpenAI(api_key=API_KEY)
@@ -304,29 +339,29 @@ try:
             except:
                 return old_names
 
-        def llm_instruction(self, kind="base_layer"):
-            if kind == "base_layer":
-                return """
+        @property
+        def llm_instruction_base_layer(self):
+            return """
 You are to give a brief (five to ten word) name describing this group.
 The topic name should be as specific as you can reasonably make it, while still describing the all example texts.
 The response must be **ONLY** JSON with no preamble formatted as {"topic_name":<NAME>, "topic_specificity":<SCORE>} where SCORE is a value in the range 0 to 1.
-                """
-            elif kind == "intermediate_layer":
-                return """
+"""
+
+        @property
+        def llm_instruction_intermediate_layer(self):
+            return """
 You are to give a brief (three to five word) name describing this group of papers.
 The topic should be the most specific topic that encompasses the breadth of sub-topics, with a focus on the major sub-topics.
 The response should be only JSON with no preamble formatted as {"topic_name":<NAME>, "topic_specificity":<SCORE>} where SCORE is a value in the range 0 to 1.
-                """
-            elif kind == "remedy":
-                return """
+"""
+
+        @property
+        def llm_instruction_remedy(self):
+            return """
 You are to give a brief (five to ten word) name describing this group of papers that better captures the specific details of this group.
 The topic should be the most specific topic that encompasses the full breadth of sub-topics.
 The response should be only JSON with no preamble formatted as {"topic_name":<NAME>, "less_specific_topic_name":<NAME>, "topic_specificity":<SCORE>} where SCORE is a value in the range 0 to 1.
 """
-            else:
-                raise ValueError(
-                    f"Invalid llm_imnstruction kind; should be one of 'base_layer', 'intermediate_layer', or 'remedy' not '{kind}'"
-                )
 
-except:
+except ImportError:
     pass
