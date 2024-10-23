@@ -19,6 +19,7 @@ from tqdm.auto import tqdm
 
 from toponymy.llm_wrappers import BaseLlmWrapper
 
+logging.basicConfig()
 logger = logging.getLogger(__name__)
 
 _PROMPT_TEMPLATES = {

@@ -7,6 +7,7 @@ from pathlib import Path
 import tokenizers
 import transformers
 
+logging.basicConfig()
 logger = logging.getLogger(__name__)
 
 
