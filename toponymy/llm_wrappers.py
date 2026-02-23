@@ -218,7 +218,7 @@ class LLMWrapper(ABC):
 
     def test_llm_connectivity(
         self,
-        prompt="Identify yourself and explain that you will be providing topic names for clusters",
+        prompt="Identify yourself and explain that you will be providing topic names for clusters in JSON format",
     ) -> str:
         try:
             response = self._call_llm(prompt, temperature=0.4, max_tokens=128)
