@@ -1417,7 +1417,7 @@ try:
         """
         Provides access to Anthropic's LLMs with the Toponymy framework. For more information on Anthropic, see
         https://docs.anthropic.com/docs/overview. You will need an Anthropic API key to use this wrapper.
-        The default model is "claude-3-haiku-20240307", which is the smallest model available, but is generally
+        The default model is "claude-haiku-4-5-20251001", which is the smallest model available, but is generally
         more than sufficient for generating topic names and clusters. You can use more advanced
         models, but they have diminishing returns for this task, and are more expensive.
 
@@ -1427,7 +1427,7 @@ try:
             Your Anthropic API key. You can set this as an environment variable ANTHROPIC_API_KEY or pass it directly.
 
         model: str, optional
-            The name of the Anthropic model to use. Default is "claude-3-haiku-20240307". You can use any model available
+            The name of the Anthropic model to use. Default is "claude-haiku-4-5-20251001". You can use any model available
             in the Anthropic API, but this is a good balance of performance and cost.
 
         llm_specific_instructions: str, optional
@@ -1458,7 +1458,7 @@ try:
         def __init__(
             self,
             api_key: str,
-            model: str = "claude-3-haiku-20240307",
+            model: str = "claude-haiku-4-5-20251001",
             llm_specific_instructions=None,
         ):
             api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
@@ -1506,7 +1506,7 @@ try:
         """
         Provides access to Anthropic's LLMs with asynchronous support. This allows for concurrent processing of multiple prompts.
         For more information on Anthropic, see https://docs.anthropic.com/docs/overview. You will need an Anthropic API key to use this wrapper.
-        The default model is "claude-3-haiku-20240307", which is the smallest model available, but is generally
+        The default model is "claude-haiku-4-5-20251001", which is the smallest model available, but is generally
         more than sufficient for generating topic names and clusters. You can use more advanced models, but they have diminishing returns for this task,
         and are more expensive.
 
@@ -1520,7 +1520,7 @@ try:
             Your Anthropic API key. You can set this as an environment variable ANTHROPIC_API_KEY or pass it directly.
 
         model: str, optional
-            The name of the Anthropic model to use. Default is "claude-3-haiku-20240307". You can use any model available
+            The name of the Anthropic model to use. Default is "claude-haiku-4-5-20251001". You can use any model available
             in the Anthropic API, but this is a good balance of performance and cost.
 
         llm_specific_instructions: str, optional
@@ -1549,7 +1549,7 @@ try:
         def __init__(
             self,
             api_key: str,
-            model: str = "claude-3-haiku-20240307",
+            model: str = "claude-haiku-4-5-20251001",
             llm_specific_instructions=None,
             max_concurrent_requests: int = 10,
         ):
@@ -1653,7 +1653,7 @@ try:
             Your Anthropic API key. You can set this as an environment variable ANTHROPIC_API_KEY or pass it directly.
 
         model: str, optional
-            The name of the Anthropic model to use. Default is "claude-3-haiku-20240307". You can use any model available
+            The name of the Anthropic model to use. Default is "claude-haiku-4-5-20251001". You can use any model available
             in the Anthropic API, but this is a good balance of performance and cost.
 
         llm_specific_instructions: str, optional
@@ -1688,7 +1688,7 @@ try:
         def __init__(
             self,
             api_key: str,
-            model: str = "claude-3-haiku-20240307",
+            model: str = "claude-haiku-4-5-20251001",
             llm_specific_instructions=None,
             polling_interval: int = 60,
             timeout: int = 7200,
