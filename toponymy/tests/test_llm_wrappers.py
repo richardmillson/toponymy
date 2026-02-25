@@ -6,6 +6,17 @@ from toponymy.llm_wrappers import repair_json_string_backslashes
 
 from toponymy.llm_wrappers import AnthropicNamer, OpenAINamer, CohereNamer, HuggingFaceNamer, AzureAINamer, LlamaCppNamer, OllamaNamer, GoogleGeminiNamer, TogetherNamer, ReplicateNamer, OllamaNamer, GoogleGeminiNamer
 
+from openai import (
+    AuthenticationError,
+    PermissionDeniedError,
+    BadRequestError,
+    NotFoundError,
+    RateLimitError,
+    APITimeoutError,
+    APIConnectionError,
+    APIError,
+)
+
 # Mock responses for different scenarios
 VALID_TOPIC_NAME_RESPONSE = {
     "topic_name": "Machine Learning",
@@ -305,6 +316,25 @@ def openai_wrapper():
     with patch('openai.OpenAI'):
         wrapper = OpenAINamer(api_key="dummy")
         return wrapper
+
+OPENAI_FAIL_FAST = (
+    AuthenticationError,
+    PermissionDeniedError,
+    BadRequestError,
+    NotFoundError,
+)
+
+OEPNAI_RETRYABLE = (
+    RateLimitError,
+    APITimeoutError,
+    APIConnectionError,
+    APIError,
+)
+@pytest.mark.parametrize("error", FAIL_FAST)
+def test_openai_fast_fail_error(openai_wrapper, error):
+    with patch.object(openai_wrapper.llm.chat.completions, 'create', side_effect=error):
+        with pytest.raises(error):
+            openai_wrapper.generate_topic_name("test prompt")
 
 def test_openai_generate_topic_name_success(openai_wrapper, mock_data):
     response = MockLLMResponse.create_openai_response(mock_data["valid_topic_name"])
