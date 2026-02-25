@@ -330,7 +330,7 @@ OEPNAI_RETRYABLE = (
     APIConnectionError,
     APIError,
 )
-@pytest.mark.parametrize("error", FAIL_FAST)
+@pytest.mark.parametrize("error", OPENAI_FAIL_FAST)
 def test_openai_fast_fail_error(openai_wrapper, error):
     with patch.object(openai_wrapper.llm.chat.completions, 'create', side_effect=error):
         with pytest.raises(error):
