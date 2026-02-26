@@ -1,10 +1,14 @@
 import pytest
 from unittest.mock import Mock, patch
+import httpx
 import json
 from typing import List, Optional
-from toponymy.llm_wrappers import repair_json_string_backslashes
+from toponymy.llm_wrappers import repair_json_string_backslashes, FailFastLLMError
 
 from toponymy.llm_wrappers import AnthropicNamer, OpenAINamer, CohereNamer, HuggingFaceNamer, AzureAINamer, LlamaCppNamer, OllamaNamer, GoogleGeminiNamer, TogetherNamer, ReplicateNamer, OllamaNamer, GoogleGeminiNamer
+
+import logging
+logger = logging.getLogger(__name__)
 
 from openai import (
     AuthenticationError,
@@ -316,6 +320,14 @@ def openai_wrapper():
     with patch('openai.OpenAI'):
         wrapper = OpenAINamer(api_key="dummy")
         return wrapper
+
+def make_openai_error(error_class):
+    return error_class(
+        message="test error",
+        response=httpx.Response(401, request=httpx.Request("POST", "https://api.openai.com")),
+        body={"error": {"message": "test error", "type": "test", "code": "test"}},
+    )
+
 
 OPENAI_FAIL_FAST = (
     AuthenticationError,
