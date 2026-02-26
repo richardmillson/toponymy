@@ -2,9 +2,10 @@ import pytest
 from unittest.mock import Mock, patch
 import httpx
 import json
+import os
 from typing import List, Optional
-from toponymy.llm_wrappers import repair_json_string_backslashes, FailFastLLMError
 
+from toponymy.llm_wrappers import repair_json_string_backslashes, FailFastLLMError
 from toponymy.llm_wrappers import AnthropicNamer, OpenAINamer, CohereNamer, HuggingFaceNamer, AzureAINamer, LlamaCppNamer, OllamaNamer, GoogleGeminiNamer, TogetherNamer, ReplicateNamer, OllamaNamer, GoogleGeminiNamer
 
 import logging
@@ -357,13 +358,43 @@ OPENAI_RETRYABLE = (
     APIError,
 )
 
-def test_llm_connectivity_success(openai_wrapper):
+@pytest.mark.canary
+@pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
+def test_openai_connectivity_canary():
+    """
+    Canary test to verify live connectivity to OpenAI API. Tests the default parameters.
+    """
+    namer = OpenAINamer(api_key=os.getenv("OPENAI_API_KEY"))
+    result = namer.connectivity_status()
+    assert result["success"], (
+        f"Canary test failed for OpenAI:\n"
+        f"  Error: {result['error_type']}: {result['error_message']}"
+    )
+
+def test_openai_llm_connectivity_status_success(openai_wrapper):
+    with patch.object(openai_wrapper, '_call_llm', return_value="test response"):
+        result = openai_wrapper.connectivity_status()
+        assert result["success"] == True
+        assert result["response"] == "test response"
+
+@pytest.mark.parametrize("error", OPENAI_FAIL_FAST+OPENAI_RETRYABLE)
+def test_openai_llm_connectivity_status_failure(openai_wrapper, error):
+    with patch.object(openai_wrapper, '_call_llm', side_effect=make_openai_error(error)):
+        result = openai_wrapper.connectivity_status()
+        assert result["success"] == False
+        assert result["error_type"] == error.__name__
+        if isinstance(make_openai_error(error), APITimeoutError):
+            assert result["error_message"] == "Request timed out."
+        else:
+            assert result["error_message"] == "test error"
+
+def test_openai_llm_connectivity_success(openai_wrapper):
     with patch.object(openai_wrapper, '_call_llm', return_value="test response"):
         result = openai_wrapper.test_llm_connectivity()
         assert result == "test response"
 
 @pytest.mark.parametrize("error", OPENAI_FAIL_FAST+OPENAI_RETRYABLE)
-def test_llm_connectivity_failure(openai_wrapper, error):
+def test_openai_llm_connectivity_failure(openai_wrapper, error):
     with patch.object(openai_wrapper, '_call_llm', side_effect=make_openai_error(error)):
         result = openai_wrapper.test_llm_connectivity()
         assert result == "<error>"
