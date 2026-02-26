@@ -322,11 +322,25 @@ def openai_wrapper():
         return wrapper
 
 def make_openai_error(error_class):
-    return error_class(
-        message="test error",
-        response=httpx.Response(401, request=httpx.Request("POST", "https://api.openai.com")),
-        body={"error": {"message": "test error", "type": "test", "code": "test"}},
-    )
+    message = "test error"
+    request = httpx.Request("POST", "https://api.openai.com")
+    response = httpx.Response(401, request=request)
+    body = {"error": {"message": "test error", "type": "test", "code": "test"}}
+
+    if error_class in (AuthenticationError, PermissionDeniedError, BadRequestError, NotFoundError, RateLimitError):
+        return error_class(message=message, response=response, body=body)
+
+    elif error_class is APITimeoutError:
+        return error_class(request=request)
+
+    elif error_class is APIConnectionError:
+        return error_class(message=message, request=request)
+
+    elif error_class is APIError:
+        return error_class(message=message, request=request, body=body)
+
+    else:
+        raise ValueError(f"Unknown error class: {error_class}")
 
 
 OPENAI_FAIL_FAST = (
@@ -336,6 +350,23 @@ OPENAI_FAIL_FAST = (
     NotFoundError,
 )
 
+OPENAI_RETRYABLE = (
+    RateLimitError,
+    APITimeoutError,
+    APIConnectionError,
+    APIError,
+)
+
+def test_llm_connectivity_success(openai_wrapper):
+    with patch.object(openai_wrapper, '_call_llm', return_value="test response"):
+        result = openai_wrapper.test_llm_connectivity()
+        assert result == "test response"
+
+@pytest.mark.parametrize("error", OPENAI_FAIL_FAST+OPENAI_RETRYABLE)
+def test_llm_connectivity_failure(openai_wrapper, error):
+    with patch.object(openai_wrapper, '_call_llm', side_effect=make_openai_error(error)):
+        result = openai_wrapper.test_llm_connectivity()
+        assert result == "<error>"
 
 @pytest.mark.parametrize("error", OPENAI_FAIL_FAST)
 def test_openai_topic_name_fast_fail_error(openai_wrapper, error):
@@ -345,7 +376,7 @@ def test_openai_topic_name_fast_fail_error(openai_wrapper, error):
             logger.error(f"No exception raised! Got result: {result!r}")
 
 @pytest.mark.parametrize("error", OPENAI_FAIL_FAST)
-def test_openai_topic_cluster_names_fast_fail_error(openai_wrapper, error):
+def test_openai_topic_cluster_names_fast_fail_error(openai_wrapper, error, mock_data):
     with patch.object(openai_wrapper.llm.chat.completions, 'create', side_effect=make_openai_error(error)):
         with pytest.raises(FailFastLLMError):
             result = openai_wrapper.generate_topic_cluster_names("test prompt", mock_data["old_names"])

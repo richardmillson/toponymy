@@ -271,12 +271,11 @@ class LLMWrapper(ABC):
     def test_llm_connectivity(self) -> str:
         result = self.connectivity_status()
         if result["success"]:
-            logger.info(f"✓ Connected to {result['wrapper']} using {result['model']}")
+            logger.info(f" Connected to {result['wrapper']} using {result['model']}")
             return result["response"]
         else:
             logger.warning(f"  Failed to connect to {result['wrapper']} using {result['model']}")
             logger.warning(f"  Cause:  {result['error_type']}: {result['error_message']}")
-            logger.warning(f"  Action: {result['action']}")
             return "<error>"
 
     def connectivity_status(
@@ -291,7 +290,6 @@ class LLMWrapper(ABC):
             "error_type": None,
             "error_message": None,
             "original_exception": None,
-            "action": None,
         }
         try:
             response = self._call_llm(prompt, temperature=0.4, max_tokens=128)
@@ -301,10 +299,6 @@ class LLMWrapper(ABC):
             result["error_type"] = type(e).__name__
             result["error_message"] = str(e)
             result["original_exception"] = e
-            if isinstance(e, self.FAIL_FAST_EXCEPTIONS):
-                result["action"] = "Check your API key, model name, and permissions."
-            else:
-                result["action"] = "Check your network connection and try again."
         return result
 
 
