@@ -336,17 +336,19 @@ OPENAI_FAIL_FAST = (
     NotFoundError,
 )
 
-OEPNAI_RETRYABLE = (
-    RateLimitError,
-    APITimeoutError,
-    APIConnectionError,
-    APIError,
-)
+
 @pytest.mark.parametrize("error", OPENAI_FAIL_FAST)
-def test_openai_fast_fail_error(openai_wrapper, error):
+def test_openai_topic_name_fast_fail_error(openai_wrapper, error):
     with patch.object(openai_wrapper.llm.chat.completions, 'create', side_effect=make_openai_error(error)):
         with pytest.raises(FailFastLLMError):
             result = openai_wrapper.generate_topic_name("test prompt")
+            logger.error(f"No exception raised! Got result: {result!r}")
+
+@pytest.mark.parametrize("error", OPENAI_FAIL_FAST)
+def test_openai_topic_cluster_names_fast_fail_error(openai_wrapper, error):
+    with patch.object(openai_wrapper.llm.chat.completions, 'create', side_effect=make_openai_error(error)):
+        with pytest.raises(FailFastLLMError):
+            result = openai_wrapper.generate_topic_cluster_names("test prompt", mock_data["old_names"])
             logger.error(f"No exception raised! Got result: {result!r}")
 
 def test_openai_generate_topic_name_success(openai_wrapper, mock_data):
