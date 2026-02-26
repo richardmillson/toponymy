@@ -43,13 +43,6 @@ def _should_retry(e: Exception) -> bool:
         return False
     return True
 
-def _topic_name_error_callback(retry_state):
-    """Callback function for when all retries are exhausted in generate_topic_name. Logs the error and returns an empty string."""
-    exc = retry_state.outcome.exception()
-    if isinstance(exc, (FailFastLLMError, InvalidLLMInputError)):
-        raise exc
-    logger.error(f"All retries exhausted for generate_topic_name: {type(exc).__name__}: {exc}")
-    return ""
 
 def repair_json_string_backslashes(s: str) -> str:
     """
@@ -144,6 +137,14 @@ class LLMWrapper(ABC):
                 ) from None
             raise  # other exceptions propagate as-is, should also specify retry exceptions
 
+    def _topic_name_error_callback(retry_state):
+        """Callback function for when all retries are exhausted in generate_topic_name. Logs the error and returns an empty string."""
+        exc = retry_state.outcome.exception()
+        if isinstance(exc, (FailFastLLMError, InvalidLLMInputError)):
+            raise exc
+        warn(f"All retries exhausted for generate_topic_name: {type(exc).__name__}: {exc}")
+        return ""
+
     # @abstractmethod
     @retry(
         stop=stop_after_attempt(3),
@@ -177,15 +178,26 @@ class LLMWrapper(ABC):
 
         return topic_name
 
+    def _topic_cluster_names_error_callback(retry_state):
+        exc = retry_state.outcome.exception()
+        if isinstance(exc, (FailFastLLMError, InvalidLLMInputError)):
+            raise exc
+        old_names = (
+            retry_state.args[2]  # args[0]=self, args[1]=prompt, args[2]=old_names
+            if len(retry_state.args) > 2 and isinstance(retry_state.args[2], list)
+            else []
+        )
+        warn(
+            f"All retries exhausted for generate_topic_cluster_names: "
+            f"{type(exc).__name__}: {exc}. Returning old names."
+        )
+        return old_names
+
     # @abstractmethod
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry_error_callback=lambda retry_state: (
-            retry_state.args[1]
-            if len(retry_state.args) > 1 and isinstance(retry_state.args[1], list)
-            else []
-        ),
+        retry_error_callback=_topic_cluster_names_error_callback,
         retry=retry_if_exception(_should_retry),
     )
     def generate_topic_cluster_names(
@@ -194,31 +206,27 @@ class LLMWrapper(ABC):
         old_names: List[str],
         temperature: float = 0.4,
     ) -> List[str]:
-        try:
-            if isinstance(prompt, str):
-                topic_name_info_raw = self._safe_call_llm(
-                    prompt, temperature, max_tokens=1024
-                )
-            elif isinstance(prompt, dict) and self.supports_system_prompts:
-                topic_name_info_raw = self._call_llm_with_system_prompt(
-                    system_prompt=prompt["system"],
-                    user_prompt=prompt["user"],
-                    temperature=temperature,
-                    max_tokens=1024,
-                )
-            else:
-                raise InvalidLLMInputError(
-                    f"Prompt must be a string or a dictionary, got {type(prompt)}"
-                )
 
-            topic_name_info = llm_output_to_result(
-                topic_name_info_raw, GET_TOPIC_CLUSTER_NAMES_REGEX
+        if isinstance(prompt, str):
+            topic_name_info_raw = self._safe_call_llm(
+                prompt, temperature, max_tokens=1024
             )
-        except Exception as e:
-            warn(
-                f"Failed to generate topic cluster names with {self.__class__.__name__}: {e}"
+        elif isinstance(prompt, dict) and self.supports_system_prompts:
+            topic_name_info_raw = self._safe_call_llm_with_system_prompt(
+                system_prompt=prompt["system"],
+                user_prompt=prompt["user"],
+                temperature=temperature,
+                max_tokens=1024,
             )
-            return old_names
+        else:
+            raise InvalidLLMInputError(
+                f"Prompt must be a string or a dictionary, got {type(prompt)}"
+            )
+
+        topic_name_info = llm_output_to_result(
+            topic_name_info_raw, GET_TOPIC_CLUSTER_NAMES_REGEX
+        )
+
 
         mapping = topic_name_info["new_topic_name_mapping"]
         if len(mapping) == len(old_names):
