@@ -141,6 +141,7 @@ class LLMWrapper(ABC):
                 ) from None
             raise  # other exceptions propagate as-is, should also specify retry exceptions
 
+    @staticmethod
     def _topic_name_error_callback(retry_state):
         """Callback function for when all retries are exhausted in generate_topic_name. Logs the error and returns an empty string."""
         exc = retry_state.outcome.exception()
@@ -185,6 +186,7 @@ class LLMWrapper(ABC):
         topic_name = str(topic_extraction_function(topic_name_info))
         return topic_name
 
+    @staticmethod
     def _topic_cluster_names_error_callback(retry_state):
         exc = retry_state.outcome.exception()
         if isinstance(exc, (FailFastLLMError, InvalidLLMInputError)):
