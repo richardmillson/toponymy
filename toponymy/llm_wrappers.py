@@ -19,6 +19,9 @@ import httpx
 import json
 import asyncio
 
+import logging
+logger = logging.getLogger(__name__)
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
@@ -27,9 +30,20 @@ class InvalidLLMInputError(ValueError):
 
     pass
 
+class FailFastLLMError(RuntimeError):
+    """
+    A non-retryable error that is not caused by invalid input, but by a configuration
+    or provider issue (e.g. bad API key, insufficient permissions, model not found).
+    Retrying will not resolve these errors.
+    """
+    def __init__(self, message: str = "", original_exception: Exception | None = None):
+        super().__init__(message)
+        self.original_exception = original_exception
 
 def _should_retry(e: Exception) -> bool:
     if isinstance(e, InvalidLLMInputError):
+        return False
+    if isinstance(e, FailFastLLMError):
         return False
     return True
 
@@ -81,6 +95,7 @@ def llm_output_to_result(llm_output: str, regex: str) -> dict:
 
 
 class LLMWrapper(ABC):
+    FAIL_FAST_EXCEPTIONS: tuple = ()
 
     @abstractmethod
     def _call_llm(self, prompt: str, temperature: float, max_tokens: int) -> str:
@@ -100,11 +115,46 @@ class LLMWrapper(ABC):
         """
         pass
 
+    def _safe_call_llm(self, prompt: str, temperature: float, max_tokens: int) -> str:
+        try:
+            return self._call_llm(prompt, temperature, max_tokens)
+        except Exception as e:
+            if isinstance(e, self.FAIL_FAST_EXCEPTIONS):
+                raise FailFastLLMError(
+                    message=f"Non-retryable error for model '{self.model}': {e}",
+                    original_exception=e
+                ) from None
+            raise  # other exceptions propagate as-is, should also specify retry exceptions
+
+    def _safe_call_llm_with_system_prompt(
+        self, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int
+    ) -> str:
+        try:
+            return self._call_llm_with_system_prompt(
+                system_prompt, user_prompt, temperature, max_tokens
+            )
+        except Exception as e:
+            if isinstance(e, self.FAIL_FAST_EXCEPTIONS):
+                raise FailFastLLMError(
+                    message=f"Non-retryable error for model '{self.model}': {e}",
+                    original_exception=e
+                ) from None
+            raise  # other exceptions propagate as-is, should also specify retry exceptions
+
+    @staticmethod
+    def _topic_name_error_callback(retry_state):
+        """Callback function for when all retries are exhausted in generate_topic_name. Logs the error and returns an empty string."""
+        exc = retry_state.outcome.exception()
+        if isinstance(exc, (FailFastLLMError, InvalidLLMInputError)):
+            raise exc
+        warn(f"All retries exhausted for generate_topic_name: {type(exc).__name__}: {exc}")
+        return ""
+
     # @abstractmethod
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry_error_callback=lambda x: "",
+        retry_error_callback=_topic_name_error_callback,
         retry=retry_if_exception(_should_retry),
     )
     def generate_topic_name(
@@ -114,42 +164,49 @@ class LLMWrapper(ABC):
         topic_extraction_function=lambda x: x["topic_name"],
         get_topic_name_regex=GET_TOPIC_NAME_REGEX,
     ) -> str:
-        try:
-            if isinstance(prompt, str):
-                topic_name_info_raw = self._call_llm(
-                    prompt, temperature, max_tokens=128
-                )
-            elif isinstance(prompt, dict) and self.supports_system_prompts:
-                topic_name_info_raw = self._call_llm_with_system_prompt(
-                    system_prompt=prompt["system"],
-                    user_prompt=prompt["user"],
-                    temperature=temperature,
-                    max_tokens=128,
-                )
-            else:
-                raise InvalidLLMInputError(
-                    f"Prompt must be a string or a dictionary, got {type(prompt)}"
-                )
+        if isinstance(prompt, str):
+            topic_name_info_raw = self._safe_call_llm(
+                prompt, temperature, max_tokens=128
+            )
+        elif isinstance(prompt, dict) and self.supports_system_prompts:
+            topic_name_info_raw = self._safe_call_llm_with_system_prompt(
+                system_prompt=prompt["system"],
+                user_prompt=prompt["user"],
+                temperature=temperature,
+                max_tokens=128,
+            )
+        else:
+            raise InvalidLLMInputError(
+                f"Prompt must be a string or a dictionary, got {type(prompt)}"
+            )
 
-            topic_name_info = llm_output_to_result(
-                topic_name_info_raw, get_topic_name_regex
-            )
-            topic_name = str(topic_extraction_function(topic_name_info))
-        except Exception as e:
-            raise ValueError(
-                f"Failed to generate topic name with {self.__class__.__name__}"
-            )
+        topic_name_info = llm_output_to_result(
+            topic_name_info_raw, get_topic_name_regex
+        )
+        topic_name = str(topic_extraction_function(topic_name_info))
         return topic_name
+
+    @staticmethod
+    def _topic_cluster_names_error_callback(retry_state):
+        exc = retry_state.outcome.exception()
+        if isinstance(exc, (FailFastLLMError, InvalidLLMInputError)):
+            raise exc
+        old_names = (
+            retry_state.args[2]  # args[0]=self, args[1]=prompt, args[2]=old_names
+            if len(retry_state.args) > 2 and isinstance(retry_state.args[2], list)
+            else []
+        )
+        warn(
+            f"All retries exhausted for generate_topic_cluster_names: "
+            f"{type(exc).__name__}: {exc}. Returning old names."
+        )
+        return old_names
 
     # @abstractmethod
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry_error_callback=lambda retry_state: (
-            retry_state.args[1]
-            if len(retry_state.args) > 1 and isinstance(retry_state.args[1], list)
-            else []
-        ),
+        retry_error_callback=_topic_cluster_names_error_callback,
         retry=retry_if_exception(_should_retry),
     )
     def generate_topic_cluster_names(
@@ -160,31 +217,27 @@ class LLMWrapper(ABC):
         extract_topic_names_function=default_extract_topic_names,
         get_topic_names_regex=GET_TOPIC_CLUSTER_NAMES_REGEX,
     ) -> List[str]:
-        try:
-            if isinstance(prompt, str):
-                topic_name_info_raw = self._call_llm(
-                    prompt, temperature, max_tokens=1024
-                )
-            elif isinstance(prompt, dict) and self.supports_system_prompts:
-                topic_name_info_raw = self._call_llm_with_system_prompt(
-                    system_prompt=prompt["system"],
-                    user_prompt=prompt["user"],
-                    temperature=temperature,
-                    max_tokens=1024,
-                )
-            else:
-                raise InvalidLLMInputError(
-                    f"Prompt must be a string or a dictionary, got {type(prompt)}"
-                )
 
-            topic_name_info = llm_output_to_result(
-                topic_name_info_raw, GET_TOPIC_CLUSTER_NAMES_REGEX
+        if isinstance(prompt, str):
+            topic_name_info_raw = self._safe_call_llm(
+                prompt, temperature, max_tokens=1024
             )
-        except Exception as e:
-            warn(
-                f"Failed to generate topic cluster names with {self.__class__.__name__}: {e}"
+        elif isinstance(prompt, dict) and self.supports_system_prompts:
+            topic_name_info_raw = self._safe_call_llm_with_system_prompt(
+                system_prompt=prompt["system"],
+                user_prompt=prompt["user"],
+                temperature=temperature,
+                max_tokens=1024,
             )
-            return old_names
+        else:
+            raise InvalidLLMInputError(
+                f"Prompt must be a string or a dictionary, got {type(prompt)}"
+            )
+
+        topic_name_info = llm_output_to_result(
+            topic_name_info_raw, GET_TOPIC_CLUSTER_NAMES_REGEX
+        )
+
 
         return extract_topic_names_function(
             topic_name_info, old_names, topic_name_info_raw
@@ -229,16 +282,38 @@ class LLMWrapper(ABC):
         """
         return True
 
-    def test_llm_connectivity(
-        self,
-        prompt="Identify yourself and explain that you will be providing topic names for clusters in JSON format",
-    ) -> str:
+    def test_llm_connectivity(self) -> str:
+        result = self.connectivity_status()
+        if result["success"]:
+            logger.info(f" Connected to {result['wrapper']} using {result['model']}")
+            return result["response"]
+        else:
+            logger.warning(f"  Failed to connect to {result['wrapper']} using {result['model']}")
+            logger.warning(f"  Cause:  {result['error_type']}: {result['error_message']}")
+            return "<error>"
+
+    def connectivity_status(
+       self,
+        prompt="Identify yourself and explain that you will be providing topic names for  in JSON format",
+    ) -> dict:
+        result = {
+            "success": False,
+            "model": self.model,
+            "wrapper": self.__class__.__name__,
+            "response": None,
+            "error_type": None,
+            "error_message": None,
+            "original_exception": None,
+        }
         try:
             response = self._call_llm(prompt, temperature=0.4, max_tokens=128)
-            return response
+            result["success"] = True
+            result["response"] = response
         except Exception as e:
-            warn(f"Failed to test LLM connectivity with {self.__class__.__name__}: {e}")
-            return "<error>"
+            result["error_type"] = type(e).__name__
+            result["error_message"] = str(e)
+            result["original_exception"] = e
+        return result
 
 
 class AsyncLLMWrapper(ABC):
@@ -2036,6 +2111,7 @@ except ImportError:
 
 try:
     import openai
+    from openai import AuthenticationError, PermissionDeniedError, BadRequestError, NotFoundError
 
     class OpenAINamer(LLMWrapper):
         """
@@ -2083,6 +2159,7 @@ try:
         This wrapper does not support batch processing. If you need to process multiple prompts concurrently,
         consider using the AsyncOpenAI wrapper instead.
         """
+        FAIL_FAST_EXCEPTIONS = (AuthenticationError, PermissionDeniedError, BadRequestError, NotFoundError)
 
         def __init__(
             self,
