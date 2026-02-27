@@ -72,6 +72,12 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/TutteInstitute/toponymy"
 
+[tool.pytest.ini_options]
+markers = [
+    "canary: marks tests as canary tests that make live API calls"
+]
+addopts = "-m 'not canary'"
+
 [tool.setuptools]
 zip-safe = false
 packages = ["toponymy"]
